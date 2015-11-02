@@ -1,6 +1,8 @@
 import os, sys, random, math, bisect, logging
 from ds.list import Singly
 
+NDIGITS = 3
+
 class Process(object):
     """
     """
@@ -17,17 +19,17 @@ class Process(object):
         return self.service_time - self.CPU_time_completed
 
     def __repr__(self):
-        return "id: {},  \
-                 arrival time: {}, \
-                 service time: {}, \
-                 completed: {}, \
-                 departure time: {}".format(
+        return ("{{id: {},  "
+                 "arrival: {}, "
+                 "Ts: {}, "
+                 "completed: {}, "
+                 "departure: {}}}".format(
                     self.id,
-                    self.arrival_time,
-                    self.service_time,
-                    self.CPU_time_completed,
-                    self.departure_time
-                 )
+                    round(self.arrival_time, NDIGITS),
+                    round(self.service_time, NDIGITS),
+                    round(self.CPU_time_completed, NDIGITS),
+                    round(self.departure_time, NDIGITS)
+                 ))
 
 class Event(object):
     """
@@ -37,7 +39,9 @@ class Event(object):
         self.time = time
 
     def __repr__(self):
-        return 'type: {}, event time: {}'.format(EventType.mapping[self.event_type], self.time)
+        return ('{{type: {}, event time: {}}}'
+                .format(EventType.mapping[self.event_type],
+                        round(self.time, NDIGITS)))
 
 class EventType:
     arrival, timeslice, departure, sample = range(4)
@@ -59,16 +63,27 @@ class BaseScheduler(object):
         self.CPU = None
 
     def analyze(self):
+        """
+        """
+        logging.debug('\t(7)\tanalyze, ready queue: {}'.format(self.ready_queue))
+        if len(self.ready_queue) > 0:
+            logging.debug('\t(8)\tscheduling: {}'.format(self.ready_queue[0]))
+            self.schedule(self.ready_queue[0])
+
+    def check(self):
         """prepares to schedule CPU
         """
-        if CPU and CPU.remaining_time() <= 0:
+        logging.debug('\t(6)\tcheck, CPU: {}'.format(self.CPU))
+
+        if not self.CPU:
+            self.analyze()
+        elif self.CPU.remaining_time() <= 0:
             self.egress(self.CPU)
-            if len(self.ready_queue) > 0:
-                self.schedule(self.ready_queue[0])
+            self.analyze()
 
     def schedule(self, process):
         """removes process from ready queue, sends to CPU"""
-        self.ready_queue.remove[process]
+        self.ready_queue.remove(process)
         current_time = self.sim.clock
         process.departure_time = current_time + process.service_time
         self.sim._schedule_departure(process)
@@ -77,7 +92,7 @@ class BaseScheduler(object):
     def ingress(self, process):
         self.process_list.append(process)
         self.ready_queue.append(process)
-        self.analyze()
+        self.check()
 
     def egress(self, process):
         self.sim._record_departure(process)
@@ -163,16 +178,21 @@ class Simulator(object):
             time_offset = self.last_arrival.time
 
         new_event_time = Simulator.genexp(self.arrival_rate) + time_offset
+        logging.debug("\t(1)\tnew {}, time: \t{}, current: \t{}, diff: \t{}"
+                      .format(EventType.mapping[EventType.arrival],
+                              round(new_event_time, NDIGITS),
+                              round(self.clock, NDIGITS),
+                              round(new_event_time-self.clock, NDIGITS)))
         new_event = Event(EventType.arrival, new_event_time)
 
-        logging.debug('schedule arrival: {}'.format(new_event))
+        #logging.debug('schedule arrival: {}'.format(new_event))
 
         self.last_arrival = new_event
         bisect.insort_left(self.event_queue, new_event)
 
         #logging.info(self.event_queue[-1])
 
-    def _genid():
+    def _genid(self):
         """
         """
         self.lastid += 1
@@ -181,8 +201,13 @@ class Simulator(object):
     def _dispatch_process(self, event):
         """
         """
+        #logging.debug("\t(4)\tdispatch {}, time: \t{}, current: \t{}, diff: \t{}\n"
+        #              .format(EventType.mapping[event.event_type],
+        #                      round(event.time, NDIGITS),
+        #                      round(self.clock, NDIGITS),
+        #                      round(event.time-self.clock, NDIGITS)))
         new_process = Process(self._genid(), self.clock, 0.06)
-        logging.debug('dispatch process: {}'.format(new_process))
+        logging.debug('\t(4)\tdispatch {}'.format(new_process))
         self.current_scheduler.ingress(new_process)
 
     def _schedule_departure(self, process):
@@ -194,20 +219,20 @@ class Simulator(object):
     def _trigger_scheduler(self):
         """
         """
-        logging.debug('trigger scheduler')
-        self.current_scheduler.analyze()
+        logging.debug('\t()\ttrigger scheduler')
+        self.current_scheduler.check()
 
     def _record_departure(self, process):
         """
         """
-        logging.debug('record departure #{}: {}'
+        logging.debug('\t(5)\trecord departure #{}: {}'
                         .format(self.departure_count, process))
         self.departure_count += 1
 
     def _sample_ready_queue(self):
         """
         """
-        logging.debug('sample')
+        logging.debug('\t()\tsample')
         pass
 
     def run(self):
@@ -215,18 +240,25 @@ class Simulator(object):
         """
         tmp = 0
         for scheduler in self.schedulers:
-            self.current_schedule = scheduler
+            self.current_scheduler = scheduler
             while self.running:
                 self._schedule_arrival()
 
                 next_event = self.event_queue[0]
+                logging.debug('\t(2)\tnext event: {}, event queue length: {}'
+                                .format(next_event, len(self.event_queue)))
                 self.event_queue.remove(next_event)
+                logging.debug('\t(3)\tremoving from queue, event queue length: {}'
+                                .format(len(self.event_queue)))
                 self.clock = next_event.time
 
-                self.event_mapping[next_event.event_type]
+                self.event_mapping[next_event.event_type](next_event)
 
                 tmp += 1
-                if tmp > 10:
+                print
+                print self.event_queue
+                print
+                if self.departure_count > 3:
                     self.running = False
 
         self._process_results()
